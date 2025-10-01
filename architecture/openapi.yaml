@@ -1,0 +1,952 @@
+openapi: 3.0.3
+info:
+  title: AI CREAT - API Specification
+  description: API for the AI CREAT application, enabling users to upload, process, and generate creative assets, and allowing admins to manage the platform's rules and templates.
+  version: 1.1.0
+servers:
+  - url: /api/v1
+    description: Main API endpoint
+
+tags:
+  - name: Authentication
+    description: User login, logout, and session management.
+  - name: Projects & Assets
+    description: Managing projects (batches) and uploading original assets.
+  - name: Generation
+    description: Endpoints for initiating and retrieving AI-generated assets.
+  - name: User - Formats
+    description: Endpoints for users to view available formats.
+  - name: Admin - Formats & Platforms
+    description: Admin-only endpoints for managing asset formats and platforms.
+  - name: Admin - Rules & Controls
+    description: Admin-only endpoints for configuring application-wide behavior.
+
+paths:
+  # -------------------------------------------
+  # Authentication Endpoints
+  # -------------------------------------------
+  /auth/login:
+    post:
+      tags: [Authentication]
+      summary: User Login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username: { type: string, example: "naomi" }
+                password: { type: string, format: password, example: "password123" }
+      responses:
+        '200':
+          description: Successful login
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accessToken: { type: string }
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /auth/logout:
+    post:
+      tags: [Authentication]
+      summary: User Logout
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: Successfully logged out.
+
+  /users/me/preferences:
+    put:
+      tags: [Authentication]
+      summary: Update User Preferences
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                theme: { type: string, enum: [light, dark] }
+      responses:
+        '200':
+          description: Preferences updated successfully.
+
+  # -------------------------------------------
+  # User - Project & Asset Endpoints
+  # -------------------------------------------
+  /projects:
+    get:
+      tags: [Projects & Assets]
+      summary: Get User Projects
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, default: 10 }
+        - name: offset
+          in: query
+          schema: { type: integer, default: 0 }
+      responses:
+        '200':
+          description: A list of projects.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Project'
+
+  /projects/upload:
+    post:
+      tags: [Projects & Assets]
+      summary: Create Project and Upload Assets
+      description: Creates a new project and uploads assets in a single step.
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [projectName, files]
+              properties:
+                projectName:
+                  type: string
+                  description: The name for the new project.
+                files:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+      responses:
+        '202':
+          description: Upload accepted for background processing.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  projectId: { type: string, format: uuid }
+
+  /projects/{projectId}/status:
+    get:
+      tags: [Projects & Assets]
+      summary: Get Project Status (for polling)
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      responses:
+        '200':
+          description: Current status of the project.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, enum: [uploading, processing, ready_for_review, generating, completed, failed] }
+                  progress: { type: integer, example: 60 }
+
+  /projects/{projectId}/preview:
+    get:
+      tags: [Projects & Assets]
+      summary: Get AI Analysis Preview of Assets
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      responses:
+        '200':
+          description: A list of analyzed assets.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AssetPreview'
+
+  # -------------------------------------------
+  # User - Formats Endpoint
+  # -------------------------------------------
+  /formats:
+    get:
+      tags: [User - Formats]
+      summary: Get all available asset formats for users
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: A list of all active formats for resizing and repurposing.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  resizing:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AssetFormat'
+                  repurposing:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AssetFormat'
+
+  # -------------------------------------------
+  # User - Generation & Download Endpoints
+  # -------------------------------------------
+  /generate:
+    post:
+      tags: [Generation]
+      summary: Start a New Generation Job
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenerationRequest'
+      responses:
+        '202':
+          description: Generation job accepted.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  jobId: { type: string, format: uuid }
+
+  /generate/{jobId}/status:
+    get:
+      tags: [Generation]
+      summary: Get Generation Job Status (for polling)
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '200':
+          description: Current status of the job.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, enum: [pending, processing, completed, failed] }
+                  progress: { type: integer, example: 75 }
+
+  /generate/{jobId}/results:
+    get:
+      tags: [Generation]
+      summary: Get Generation Job Results
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '200':
+          description: An object containing generated assets grouped by platform.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/GeneratedAsset'
+                example:
+                  Instagram: [{...}, {...}]
+                  Facebook: [{...}]
+
+  /generated-assets/{assetId}:
+    get:
+      tags: [Generation]
+      summary: Get a single Generated Asset
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AssetId'
+      responses:
+        '200':
+          description: The requested generated asset.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneratedAsset'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+    put:
+      tags: [Generation]
+      summary: Apply Manual Edits to a Generated Asset
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AssetId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                edits:
+                  type: object
+                  properties:
+                    crop: { type: object, properties: { x: {type: number}, y: {type: number}, width: {type: number}, height: {type: number} } }
+                    saturation: { type: number, minimum: 0, maximum: 2 }
+                    textOverlays:
+                      type: array
+                      items:
+                        $ref: '#/components/schemas/TextOverlay'
+                    logoOverlay:
+                      $ref: '#/components/schemas/LogoOverlay'
+      responses:
+        '200':
+          description: Asset updated successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneratedAsset'
+
+  /download:
+    post:
+      tags: [Generation]
+      summary: Get Download URL for Assets
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [assetIds, format, quality, grouping]
+              properties:
+                assetIds:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+                format: { type: string, enum: [jpeg, png] }
+                quality: { type: string, enum: [high, medium, low] }
+                grouping: { type: string, enum: [individual, batch, category] }
+      responses:
+        '200':
+          description: A pre-signed URL for downloading the assets.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  downloadUrl: { type: string, format: uri }
+
+  # -------------------------------------------
+  # Admin - Platforms & Formats
+  # -------------------------------------------
+  /admin/platforms:
+    get:
+      tags: [Admin - Formats & Platforms]
+      summary: List all repurposing platforms
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: A list of all repurposing platforms.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RepurposingPlatform'
+    post:
+      tags: [Admin - Formats & Platforms]
+      summary: Add a new repurposing platform
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, example: "Acme Platform" }
+      responses:
+        '201':
+          description: Platform created successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepurposingPlatform'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /admin/platforms/{platformId}:
+    put:
+      tags: [Admin - Formats & Platforms]
+      summary: Update a platform's name
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: platformId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, example: "Acme Platform V2" }
+      responses:
+        '200':
+          description: Platform updated successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepurposingPlatform'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    delete:
+      tags: [Admin - Formats & Platforms]
+      summary: Delete a platform
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: platformId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204':
+          description: Platform deleted successfully.
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /admin/formats:
+    get:
+      tags: [Admin - Formats & Platforms]
+      summary: List all asset formats
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: type
+          in: query
+          schema: { type: string, enum: [resizing, repurposing] }
+        - name: category
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: A list of asset formats.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AssetFormat'
+    post:
+      tags: [Admin - Formats & Platforms]
+      summary: Create a new asset format
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssetFormatUpdate'
+      responses:
+        '201':
+          description: Format created successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssetFormat'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /admin/formats/{formatId}:
+    put:
+      tags: [Admin - Formats & Platforms]
+      summary: Update an asset format
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: formatId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssetFormatUpdate'
+      responses:
+        '200':
+          description: Format updated successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssetFormat'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    delete:
+      tags: [Admin - Formats & Platforms]
+      summary: Delete an asset format
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: formatId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204':
+          description: Format deleted successfully.
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /admin/text-style-sets:
+    get:
+      tags: [Admin - Formats & Platforms]
+      summary: List all text style sets
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: A list of available text style sets.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TextStyleSet'
+    post:
+      tags: [Admin - Formats & Platforms]
+      summary: Create a new text style set
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TextStyleSetUpdate'
+      responses:
+        '201':
+          description: Text style set created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TextStyleSet'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /admin/text-style-sets/{setId}:
+    put:
+      tags: [Admin - Formats & Platforms]
+      summary: Update a text style set
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: setId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TextStyleSetUpdate'
+      responses:
+        '200':
+          description: Text style set updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TextStyleSet'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    delete:
+      tags: [Admin - Formats & Platforms]
+      summary: Delete a text style set
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: setId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204':
+          description: Text style set deleted.
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  # -------------------------------------------
+  # Admin - Rules & Controls
+  # -------------------------------------------
+  /admin/rules/adaptation:
+    get:
+      tags: [Admin - Rules & Controls]
+      summary: Get Image Template Rules and Adaptation Settings
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current adaptation rule settings.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdaptationRule'
+    put:
+      tags: [Admin - Rules & Controls]
+      summary: Update Image Template Rules and Adaptation Settings
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdaptationRule'
+      responses:
+        '200':
+          description: Settings updated successfully.
+
+  /admin/rules/ai-behavior:
+    get:
+      tags: [Admin - Rules & Controls]
+      summary: Get AI Behavior Controls
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current AI behavior settings.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AIBehaviorRule'
+    put:
+      tags: [Admin - Rules & Controls]
+      summary: Update AI Behavior Controls
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AIBehaviorRule'
+      responses:
+        '200':
+          description: Settings updated successfully.
+
+  /admin/rules/upload-moderation:
+    get:
+      tags: [Admin - Rules & Controls]
+      summary: Get Content Moderation and Upload Rules
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current upload and moderation settings.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadModerationRule'
+    put:
+      tags: [Admin - Rules & Controls]
+      summary: Update Content Moderation and Upload Rules
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UploadModerationRule'
+      responses:
+        '200':
+          description: Settings updated successfully.
+
+  /admin/rules/manual-editing:
+    get:
+      tags: [Admin - Rules & Controls]
+      summary: Get Manual Editing Rules for Users
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current manual editing rule settings.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManualEditingRule'
+    put:
+      tags: [Admin - Rules & Controls]
+      summary: Update Manual Editing Rules for Users
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ManualEditingRule'
+      responses:
+        '200':
+          description: Settings updated successfully.
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    ProjectId:
+      name: projectId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    JobId:
+      name: jobId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    AssetId:
+      name: assetId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+
+  responses:
+    UnauthorizedError:
+      description: Authentication information is missing or invalid.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFoundError:
+      description: The specified resource was not found.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    ValidationError:
+      description: The request body contains invalid data.
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              message: { type: string, example: "Validation failed" }
+              errors: { type: object, additionalProperties: true, example: { "name": "Name cannot be empty" } }
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        code: { type: integer }
+        message: { type: string }
+
+    Project:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        status: { type: string }
+        submitDate: { type: string, format: date-time }
+        fileCounts:
+          type: object
+          properties:
+            psd: { type: integer }
+            jpg: { type: integer }
+            png: { type: integer }
+
+    AssetPreview:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        filename: { type: string }
+        previewUrl: { type: string, format: uri }
+        metadata:
+          type: object
+          properties:
+            layers: { type: integer }
+            width: { type: integer }
+            height: { type: integer }
+            dpi: { type: integer }
+            detectedElements: { type: array, items: { type: string } }
+
+    GeneratedAsset:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        originalAssetId: { type: string, format: uuid }
+        filename: { type: string }
+        assetUrl: { type: string, format: uri }
+        platformName: { type: string, nullable: true }
+        formatName: { type: string }
+        dimensions: { type: object, properties: { width: {type: integer}, height: {type: integer} } }
+        isNsfw: { type: boolean }
+
+    GenerationRequest:
+      type: object
+      properties:
+        projectId: { type: string, format: uuid }
+        formatIds:
+          type: array
+          items: { type: string, format: uuid }
+        customResizes:
+          type: array
+          items:
+            type: object
+            properties:
+              width: { type: integer }
+              height: { type: integer }
+
+    RepurposingPlatform:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+
+    AssetFormat:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        type: { type: string, enum: [resizing, repurposing] }
+        platformId: { type: string, format: uuid, nullable: true }
+        category: { type: string, nullable: true }
+        width: { type: integer }
+        height: { type: integer }
+
+    AssetFormatUpdate:
+      type: object
+      required: [name, type, width, height]
+      properties:
+        name: { type: string, example: "Custom Banner" }
+        type: { type: string, enum: [resizing, repurposing] }
+        platformId: { type: string, format: uuid, nullable: true, description: "Required if type is 'repurposing'" }
+        category: { type: string, nullable: true, description: "Required if type is 'resizing'" }
+        width: { type: integer, example: 1200 }
+        height: { type: integer, example: 400 }
+
+    TextStyleDefinition:
+      type: object
+      properties:
+        fontFamily: { type: string, example: "Inter" }
+        fontSize: { type: integer, example: 32 }
+        fontWeight: { type: string, example: "bold" }
+        color: { type: string, example: "#FFFFFF" }
+
+    TextStyleSet:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        styles:
+          type: object
+          properties:
+            title: { $ref: '#/components/schemas/TextStyleDefinition' }
+            subtitle: { $ref: '#/components/schemas/TextStyleDefinition' }
+            content: { $ref: '#/components/schemas/TextStyleDefinition' }
+
+    TextStyleSetUpdate:
+      type: object
+      required: [name, styles]
+      properties:
+        name: { type: string, example: "Primary Brand Kit" }
+        styles:
+          type: object
+          properties:
+            title: { $ref: '#/components/schemas/TextStyleDefinition' }
+            subtitle: { $ref: '#/components/schemas/TextStyleDefinition' }
+            content: { $ref: '#/components/schemas/TextStyleDefinition' }
+
+    TextOverlay:
+      type: object
+      properties:
+        content: { type: string }
+        textStyleSetId: { type: string, format: uuid, description: "ID of a predefined admin text style set" }
+        styleType: { type: string, enum: [title, subtitle, content] }
+        position: { type: object, properties: { x: {type: number}, y: {type: number} } }
+
+    LogoOverlay:
+      type: object
+      properties:
+        logoUrl: { type: string, format: uri, description: "URL to an uploaded logo asset" }
+        position: { type: object, properties: { x: {type: number}, y: {type: number} } }
+        size: { type: number, description: "Size as a percentage of the canvas width" }
+
+    AdaptationRule:
+      type: object
+      properties:
+        focalPointLogic:
+          type: string
+          enum: [face-centric, product-centric, 'face-centric & product-centric', human-centered]
+        layoutGuidance:
+          type: object
+          properties:
+            safeZone:
+              type: object
+              properties:
+                top: { type: number }
+                bottom: { type: number }
+                left: { type: number }
+                right: { type: number }
+            logoSize: { type: number }
+
+    AIBehaviorRule:
+      type: object
+      properties:
+        adaptationStrategy:
+          type: string
+          enum: [crop, extend-canvas, add-background]
+        imageQuality:
+          type: string
+          enum: [low, medium, high]
+
+    UploadModerationRule:
+      type: object
+      properties:
+        allowedImageTypes:
+          type: array
+          items: { type: string, enum: [jpeg, png, psd] }
+        maxFileSizeMb: { type: integer }
+        nsfwAlertsActive: { type: boolean }
+
+    ManualEditingRule:
+      type: object
+      properties:
+        editingEnabled: { type: boolean }
+        croppingEnabled: { type: boolean }
+        saturationEnabled: { type: boolean }
+        addTextOrLogoEnabled: { type: boolean }
+        allowedLogoSources:
+          type: object
+          properties:
+            types: { type: array, items: { type: string, enum: [jpeg, png, psd, ai] } }
+            maxSizeMb: { type: integer }

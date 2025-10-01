@@ -1,0 +1,36 @@
+1. UI-to-API Mapping Table (Updated)
+Changes Made:
+Merged resizing and repurposing template endpoints.
+Combined project creation with the initial asset upload.
+Updated "Generate with AI" payload to use a single formatIds array.
+Updated Admin section to reflect merged format management.
+Updated Admin text style management to "Text Style Sets."
+Verified the GET /generated-assets/{assetId} endpoint is correctly mapped.
+
+
+2. Implementation Notes (Updated)
+Changes Made:
+Updated the asynchronous workflow to reflect the combined project creation and upload step.
+Noted the consolidation of resizing_templates and repurposing_formats into a single asset_formats table.
+Explained the decision to use a structured JSONB field for manual edits.
+Updated the concept of text styles to "Text Style Sets" to match the review feedback.
+
+
+3. Database Schema (Updated)
+Changes Made:
+Removed resizing_templates and repurposing_formats.
+Added a new asset_formats table to hold both types, with a nullable platform_id.
+Updated generated_assets to have a single asset_format_id foreign key.
+Removed the old text_styles table.
+Added a new text_style_sets table to group title/subtitle/content styles.
+
+
+4. OpenAPI Specification (Updated)
+Changes Made:
+Removed POST /projects and created a new POST /projects/upload endpoint.
+Added the missing GET /generated-assets/{assetId} endpoint.
+In the GenerationRequest schema, merged resizingTemplateIds and repurposingFormatIds into a single formatIds array.
+Removed all separate admin endpoints for resizing/repurposing.
+Created a new, unified set of admin endpoints: /admin/platforms and /admin/formats.
+Removed the old /admin/text-styles endpoints and created new ones for /admin/text-style-sets.
+Added schemas for TextOverlay and LogoOverlay to formalize the manual edit payload.

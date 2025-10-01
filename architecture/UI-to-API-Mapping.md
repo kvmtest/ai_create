@@ -1,0 +1,55 @@
+# UI-to-API Mapping Table
+
+This document maps the user interface (UI) actions observed in the design prototype to the corresponding backend API endpoints.
+
+### User Authentication & Dashboard
+
+| Screen/Component      | User Action                                | Trigger                    | HTTP Method | API Endpoint                   | Request Payload (Example)                               | Success Response (Brief)                                        |
+| :-------------------- | :----------------------------------------- | :------------------------- | :---------- | :----------------------------- | :------------------------------------------------------ | :-------------------------------------------------------------- |
+| **Login Page**        | Enters credentials and submits             | Click "Login" button       | `POST`      | `/auth/login`                  | `{ "username": "naomi", "password": "..." }`            | `200 OK` with JWT token `{ "accessToken": "..." }`              |
+| **Forgot Password**   | Enters email to request reset              | Click "Reset Password"     | `POST`      | `/auth/password-reset-request` | `{ "email": "naomi@example.com" }`                      | `202 Accepted`                                                  |
+| **Any Authenticated Page** | User session expires or is invalid         | API call returns 401       | `N/A`       | `N/A`                          | `N/A`                                                   | Redirect to Login page                                          |
+| **Header**            | Clicks user profile icon and then "Logout" | Click "Logout" menu item | `POST`      | `/auth/logout`                 | (none - token sent in Authorization header)             | `204 No Content`                                                |
+| **Header**            | Toggles light/dark mode                    | Click theme toggle icon    | `PUT`       | `/users/me/preferences`        | `{ "theme": "light" }`                                  | `200 OK` with updated user preferences object                   |
+| **Dashboard**         | Page loads after login                     | Route navigation           | `GET`       | `/projects?limit=3&sort=desc`  | (none)                                                  | `200 OK` with an array of the 3 most recent Project objects |
+| **Dashboard**         | Clicks "View more" for Recent Projects     | Click "View more" link     | `GET`       | `/projects`                    | (none)                                                  | `200 OK` with a paginated list of all Project objects           |
+| **Header**            | Clicks "Project History"                   | Click "Project History" link | `GET`       | `/projects`                    | (none)                                                  | `200 OK` with a paginated list of all Project objects           |
+
+### Project Creation, Upload, and AI Analysis
+
+| Screen/Component      | User Action                                | Trigger                    | HTTP Method | API Endpoint                   | Request Payload (Example)                               | Success Response (Brief)                                        |
+| :-------------------- | :----------------------------------------- | :------------------------- | :---------- | :----------------------------- | :------------------------------------------------------ | :-------------------------------------------------------------- |
+| **Dashboard**         | Initiates file upload, creating project    | Drag & Drop or Browse click| `POST`      | `/projects/upload`             | `multipart/form-data` with files and `projectName` field | `202 Accepted` with a new `projectId`                           |
+| **Dashboard (Uploading...)** | UI polls for upload/processing status      | Periodically after upload starts | `GET`       | `/projects/{projectId}/status` | (none)                                                  | `200 OK` with `{ "status": "processing", "progress": 60 }` |
+| **AI Preview Page**   | Upload and initial analysis are complete   | Project status becomes `ready_for_review` | `GET`       | `/projects/{projectId}/preview` | (none)                                                  | `200 OK` with array of Asset objects including AI metadata      |
+
+### Resizing, Repurposing, and Generation Workflow
+
+| Screen/Component      | User Action                                | Trigger                    | HTTP Method | API Endpoint                   | Request Payload (Example)                               | Success Response (Brief)                                        |
+| :-------------------- | :----------------------------------------- | :------------------------- | :---------- | :----------------------------- | :------------------------------------------------------ | :-------------------------------------------------------------- |
+| **Multi-channel Selection** | Page loads, displaying available formats | Route navigation           | `GET`       | `/formats`                     | (none)                                                  | `200 OK` with arrays of available format data grouped by type   |
+| **Multi-channel Selection** | Selects formats and starts generation      | Click "Generate With AI"   | `POST`      | `/generate`                    | `{ "projectId": "...", "formatIds": ["...", "..."], "customResizes": [{ "width": 1080, "height": 1920 }] }` | `202 Accepted` with a `jobId` for polling `{ "jobId": "..." }` |
+| **AI Analyzing Page** | UI polls for generation status             | Periodically after starting job | `GET`       | `/generate/{jobId}/status`     | (none)                                                  | `200 OK` with `{ "status": "processing", "progress": 75 }`     |
+
+### Asset Review, Editing, and Downloading
+
+| Screen/Component      | User Action                                | Trigger                    | HTTP Method | API Endpoint                   | Request Payload (Example)                               | Success Response (Brief)                                        |
+| :-------------------- | :----------------------------------------- | :------------------------- | :---------- | :----------------------------- | :------------------------------------------------------ | :-------------------------------------------------------------- |
+| **Real-Time AI Preview** | Generation is complete, results are displayed | Generation job status becomes `completed` | `GET`       | `/generate/{jobId}/results`  | (none)                                                  | `200 OK` with an array of `GeneratedAsset` objects grouped by platform |
+| **Adjust Image Page** | Clicks "Edit More" on an asset             | Click "Edit More" button   | `GET`       | `/generated-assets/{assetId}`  | (none)                                                  | `200 OK` with detailed `GeneratedAsset` object for editing      |
+| **Adjust Image Page** | Manually crops, adjusts saturation, adds text | Clicks "Apply Changes"     | `PUT`       | `/generated-assets/{assetId}`  | `{ "edits": { "crop": {...}, "saturation": 0.85, "text": {...} } }` | `200 OK` with the updated `GeneratedAsset` object               |
+| **Real-Time AI Preview** | Clicks "Batch Download" to open modal      | Click button               | `POST`      | `/download`                    | `{ "assetIds": ["..."], "format": "jpeg", "quality": "high", "grouping": "category" }` | `200 OK` with a temporary, pre-signed URL to a ZIP file         |
+
+### Admin Panel Management
+
+| Screen/Component      | User Action                                | Trigger                    | HTTP Method | API Endpoint                   | Request Payload (Example)                               | Success Response (Brief)                                        |
+| :-------------------- | :----------------------------------------- | :------------------------- | :---------- | :----------------------------- | :------------------------------------------------------ | :-------------------------------------------------------------- |
+| **Admin: Format Management** | Views custom resizing formats          | Clicks "Custom" tab        | `GET`       | `/admin/formats?type=resizing&category=Custom` | (none)                                                | `200 OK` with array of custom resizing format objects           |
+| **Admin: Format Management** | Adds a new custom resizing format        | Clicks "Add New Format" & submits | `POST`      | `/admin/formats`               | `{ "name": "New Format 2", "type": "resizing", "category": "Custom", "width": 1584, "height": 396 }` | `201 Created` with the new format object                      |
+| **Admin: Format Management** | Edits an existing format                 | Clicks "Edit" icon & submits | `PUT`       | `/admin/formats/{formatId}`    | `{ "name": "New Name" }`                                | `200 OK` with the updated format object                       |
+| **Admin: Format Management** | Adds a new custom platform               | Clicks "Add New Platform" & submits | `POST`      | `/admin/platforms`             | `{ "name": "Acme Platform" }`                             | `201 Created` with the new Platform object                      |
+| **Admin: Format Management** | Adds a new repurposing format to a platform | Clicks "Add New Format" & submits | `POST`      | `/admin/formats`               | `{ "platformId": "...", "name": "Acme Post", "type": "repurposing", "width": 1080, "height": 1080 }` | `201 Created` with the new format object                        |
+| **Admin: Template Rules** | Sets Focal Point Detection Logic         | Selects radio button (e.g., "Product-centric") | `PUT`       | `/admin/rules/focal-point`   | `{ "logic": "product-centric" }`                        | `200 OK`                                                        |
+| **Admin: AI Behaviour**   | Sets AI Adaptation Strategy                | Selects radio button (e.g., "Extend Canvas") | `PUT`       | `/admin/rules/ai-adaptation` | `{ "strategy": "extend-canvas" }`                       | `200 OK`                                                        |
+| **Admin: Manual Editing** | Enables/Disables editing features for users | Clicks various toggle switches | `PUT`       | `/admin/rules/manual-editing`| `{ "croppingEnabled": true, "logo": { "allowedTypes": ["png"], "maxSizeMb": 3 } }` | `200 OK`                                                        |
+| **Admin: Manual Editing** | Adds a new allowed text style set        | Clicks "Add Text Style" & submits | `POST`      | `/admin/text-style-sets`       | `{ "name": "Brand Kit 1", "title": {...}, "subtitle": {...} }` | `201 Created` with the new TextStyleSet object                  |
